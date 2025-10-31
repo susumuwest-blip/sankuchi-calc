@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📝</text></svg>">
+
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>三口の計算アプリ（ローカル版）</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+        #result-message {
+            transition: opacity 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div id="app-container" class="w-full max-w-lg bg-white shadow-2xl rounded-xl p-8 space-y-6">
+        <h1 class="text-3xl font-extrabold text-center text-indigo-600 mb-6 border-b-2 border-indigo-100 pb-3">
+            三口の計算チャレンジ（ローカル版）
+        </h1>
+
+        <div class="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0 p-4 bg-indigo-50 rounded-lg">
+            <div id="mode-display" class="text-lg font-semibold text-indigo-800">
+                現在のモード: <span id="current-mode-name" class="font-bold">簡単モード</span>
+            </div>
+            <div class="text-lg font-semibold text-gray-700">
+                正解回数: <span id="correct-count" class="text-indigo-600 text-2xl font-extrabold">0</span> 回
+            </div>
+        </div>
+
+        <div class="flex justify-center items-center space-x-4 p-6 bg-gray-50 rounded-xl shadow-inner">
+            <span id="number-1" class="text-5xl font-mono font-bold text-gray-800 w-16 text-right">0</span>
+            <span class="text-5xl font-light text-gray-400">+</span>
+            <span id="number-2" class="text-5xl font-mono font-bold text-gray-800 w-16 text-right">0</span>
+            <span class="text-5xl font-light text-gray-400">+</span>
+            <span id="number-3" class="text-5xl font-mono font-bold text-gray-800 w-16 text-right">0</span>
+            <span class="text-5xl font-light text-gray-400">=</span>
+            <span class="text-5xl font-light text-gray-400">?</span>
+        </div>
+
+        <div class="flex flex-col space-y-4">
+            <div class="flex space-x-3">
+                <input type="number" id="user-answer" placeholder="答えを入力"
+                    class="flex-grow p-4 text-2xl border-2 border-indigo-300 rounded-lg focus:ring-4 focus:ring-indigo-200 focus:border-indigo-500 transition duration-150"
+                    onkeydown="if(event.key === 'Enter') checkAnswer();"
+                >
+                <button id="check-button" onclick="checkAnswer()"
+                    class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform hover:scale-105 transition duration-150 active:bg-green-700 active:scale-95 disabled:opacity-50"
+                >
+                    答え合わせ
+                </button>
+            </div>
+            <div id="result-message" class="text-center text-2xl font-extrabold opacity-0 h-8"></div>
+        </div>
+
+        <div class="flex flex-col items-center">
+            <button id="gemini-hint-button" onclick="getLocalHint()"
+                class="bg-pink-500 hover:bg-pink-600 text-white font-bold py-2 px-4 rounded-lg shadow transform transition duration-150 active:bg-pink-700 hidden"
+            >
+                ✨ 解説をみる
+            </button>
+        </div>
+
+        <div id="gemini-hint-area" class="mt-4 p-4 bg-yellow-50 rounded-lg border-yellow-300 border hidden shadow-md">
+            <div class="font-bold text-xl text-yellow-800 mb-2">🧠 解説:</div>
+            <div id="gemini-hint-content" class="text-gray-700 whitespace-pre-wrap text-base"></div>
+        </div>
+
+        <div class="flex flex-wrap gap-3 justify-center pt-4 border-t border-gray-100">
+            <button id="easy-mode-button" onclick="setMode('easy')"
+                class="flex-1 min-w-[120px] bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-3 px-4 rounded-lg shadow transition duration-150"
+            >
+                簡単モード (1〜9)
+            </button>
+            <button id="challenge-mode-button" onclick="setMode('challenge')"
+                class="flex-1 min-w-[120px] bg-purple-500 hover:bg-purple-600 text-white font-semibold py-3 px-4 rounded-lg shadow transition duration-150"
+            >
+                チャレンジモード
+            </button>
+            <button id="new-problem-button" onclick="generateProblem()"
+                class="flex-1 min-w-[120px] bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-3 px-4 rounded-lg shadow transition duration-150"
+            >
+                次の問題
+            </button>
+            <button id="reset-score-button" onclick="resetScore()"
+                class="flex-1 min-w-[120px] bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-3 px-4 rounded-lg shadow transition duration-150"
+            >
+                記録をリセット
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let currentMode = 'easy';
+        let num1 = 0, num2 = 0, num3 = 0, correctAnswer = 0;
+        let correctCount = parseInt(localStorage.getItem('correctCount') || '0');
+        let isAnswered = false;
+
+        const el = {
+            num1: document.getElementById('number-1'),
+            num2: document.getElementById('number-2'),
+            num3: document.getElementById('number-3'),
+            answerInput: document.getElementById('user-answer'),
+            resultMessage: document.getElementById('result-message'),
+            correctCountDisplay: document.getElementById('correct-count'),
+            currentModeName: document.getElementById('current-mode-name'),
+            geminiHintButton: document.getElementById('gemini-hint-button'),
+            geminiHintArea: document.getElementById('gemini-hint-area'),
+            geminiHintContent: document.getElementById('gemini-hint-content')
+        };
+
+        el.correctCountDisplay.textContent = correctCount;
+
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function generateProblem() {
+            el.resultMessage.textContent = '';
+            el.resultMessage.classList.add('opacity-0');
+            el.geminiHintButton.classList.add('hidden');
+            el.geminiHintArea.classList.add('hidden');
+            el.answerInput.value = '';
+            el.answerInput.disabled = false;
+            isAnswered = false;
+
+            if (currentMode === 'easy') {
+                num1 = getRandomInt(1, 9);
+                num2 = getRandomInt(1, 9);
+                num3 = getRandomInt(1, 9);
+            } else {
+                num1 = getRandomInt(1, 19);
+                num2 = getRandomInt(1, 9);
+                num3 = getRandomInt(1, 9);
+            }
+
+            correctAnswer = num1 + num2 + num3;
+            el.num1.textContent = num1;
+            el.num2.textContent = num2;
+            el.num3.textContent = num3;
+        }
+
+        function checkAnswer() {
+            if (isAnswered) return;
+            const userAnswer = parseInt(el.answerInput.value);
+            if (isNaN(userAnswer)) {
+                showMessage('答えを入力してください！', 'text-red-600');
+                return;
+            }
+
+            isAnswered = true;
+            el.answerInput.disabled = true;
+
+            if (userAnswer === correctAnswer) {
+                correctCount++;
+                localStorage.setItem('correctCount', correctCount);
+                el.correctCountDisplay.textContent = correctCount;
+                showMessage('💮 正解です！', 'text-green-600');
+                el.geminiHintButton.classList.add('hidden');
+            } else {
+                showMessage(`残念！正解は ${correctAnswer} でした。`, 'text-red-600');
+                el.geminiHintButton.classList.remove('hidden');
+            }
+        }
+
+        function showMessage(text, colorClass) {
+            el.resultMessage.classList.remove('text-green-600', 'text-red-600');
+            el.resultMessage.textContent = text;
+            el.resultMessage.classList.add(colorClass, 'opacity-100');
+        }
+
+        function setMode(mode) {
+            currentMode = mode;
+            el.currentModeName.textContent = mode === 'easy' ? '簡単モード' : 'チャレンジモード';
+            generateProblem();
+        }
+
+        function resetScore() {
+            correctCount = 0;
+            localStorage.setItem('correctCount', '0');
+            el.correctCountDisplay.textContent = '0';
+            showMessage('記録をリセットしました。', 'text-red-600');
+        }
+
+        function getLocalHint() {
+            el.geminiHintArea.classList.remove('hidden');
+            el.geminiHintContent.textContent = 
+                `${num1} + ${num2} + ${num3} は、まず ${num1} + ${num2} = ${num1 + num2} を計算します。\n` +
+                `次に ${num1 + num2} + ${num3} = ${correctAnswer} になります。\n` +
+                `ステップごとに考えるとわかりやすいですね！`;
+        }
+
+        window.onload = generateProblem;
+    </script>
+</body>
+</html>
